@@ -1,0 +1,155 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Batch Transfer UI</title>
+  <style>
+    body{font-family:Arial, Helvetica, sans-serif; padding:12px}
+    textarea{width:100%;height:120px}
+    input,button,select{padding:8px;margin:6px 0}
+    table{width:100%;border-collapse:collapse}
+    table td, table th{border:1px solid #ddd;padding:6px}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.min.js"></script>
+</head>
+<body>
+  <h2>Batch Transfer (1 TX bila approve / token support permit)</h2>
+
+  <div>
+    <button id="connect">Connect Wallet</button>
+    <span id="acct"></span>
+  </div>
+
+  <div>
+    <label>Token Address:</label><br>
+    <input id="tokenAddr" placeholder="0x..." />
+  </div>
+
+  <div>
+    <label>List (CSV atau plain: address,amount per line):</label>
+    <textarea id="list" placeholder="0xabc...,25\n0xdef...,50"></textarea>
+    <button id="parse">Parse List</button>
+  </div>
+
+  <div>
+    <label>Total:</label> <span id="total">0</span>
+  </div>
+
+  <div>
+    <button id="approveBtn">Approve Contract (one-time)</button>
+    <button id="sendBatch">Send Batch (1 TX)</button>
+  </div>
+
+  <div>
+    <h4>Preview</h4>
+    <table id="preview"><thead><tr><th>Address</th><th>Amount</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div>
+    <h4>Gas Estimation</h4>
+    <div id="gasInfo">-</div>
+  </div>
+
+  <script>
+    const abiERC20 = [
+      'function decimals() view returns (uint8)',
+      'function approve(address spender, uint256 amount) external returns (bool)',
+      'function allowance(address owner, address spender) external view returns (uint256)'
+    ];
+
+    const distributorAbi = [
+      'function batchTransferFrom(address token, address[] calldata recipients, uint256[] calldata amounts) external',
+      'function batchTransferWithPermit(address token, address owner, address[] calldata recipients, uint256[] calldata amounts, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external'
+    ];
+
+    let provider, signer, account;
+    let distributorAddress = ""; // Masukkan alamat BatchDistributor di sini
+
+    async function connect(){
+      if(!window.ethereum) return alert('Install MetaMask');
+      provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send('eth_requestAccounts', []);
+      signer = await provider.getSigner();
+      account = await signer.getAddress();
+      document.getElementById('acct').innerText = account;
+    }
+    document.getElementById('connect').onclick = connect;
+
+    function parseList(text){
+      const rows = text.split(/\n|\r/).map(r=>r.trim()).filter(Boolean);
+      const out = [];
+      for(const r of rows){
+        const parts = r.split(/,|\s+/).map(x=>x.trim()).filter(Boolean);
+        if(parts.length<2) continue;
+        out.push({address:parts[0], amount:parts[1]});
+      }
+      return out;
+    }
+
+    document.getElementById('parse').onclick = async ()=>{
+      const txt = document.getElementById('list').value;
+      const rows = parseList(txt);
+      const tbody = document.querySelector('#preview tbody'); tbody.innerHTML='';
+      let total = 0;
+      for(const r of rows){
+        const tr = document.createElement('tr');
+        const td1 = document.createElement('td'); td1.innerText = r.address;
+        const td2 = document.createElement('td'); td2.innerText = r.amount;
+        tr.appendChild(td1); tr.appendChild(td2);
+        tbody.appendChild(tr);
+        total += Number(r.amount);
+      }
+      document.getElementById('total').innerText = total;
+      window._batchList = rows;
+    };
+
+    document.getElementById('approveBtn').onclick = async ()=>{
+      if(!signer) return alert('Connect wallet dulu');
+      const tokenAddr = document.getElementById('tokenAddr').value.trim();
+      if(!tokenAddr) return alert('Token address wajib');
+      if(!distributorAddress) return alert('Isi distributorAddress');
+
+      const token = new ethers.Contract(tokenAddr, abiERC20, signer);
+      const max = ethers.parseUnits('1000000000000', 18);
+      const tx = await token.approve(distributorAddress, max);
+      alert('Approve tx: '+tx.hash);
+      await tx.wait();
+      alert('Approve selesai');
+    };
+
+    document.getElementById('sendBatch').onclick = async ()=>{
+      if(!signer) return alert('Connect wallet dulu');
+      const tokenAddr = document.getElementById('tokenAddr').value.trim();
+      if(!tokenAddr) return alert('Token address wajib');
+      if(!window._batchList || window._batchList.length===0) return alert('Parse list dulu');
+      if(!distributorAddress) return alert('Isi distributorAddress');
+
+      const token = new ethers.Contract(tokenAddr, abiERC20, signer);
+      const decimals = await token.decimals().catch(()=>18);
+
+      const recipients = window._batchList.map(r=>r.address);
+      const amounts = window._batchList.map(r=>ethers.parseUnits(r.amount, decimals));
+
+      const distributor = new ethers.Contract(distributorAddress, distributorAbi, signer);
+
+      try{
+        const gasEstimate = await distributor.estimateGas.batchTransferFrom(tokenAddr, recipients, amounts);
+        const gasPrice = await provider.getGasPrice();
+        const estCost = gasEstimate * gasPrice;
+        document.getElementById('gasInfo').innerText = `Gas: ${gasEstimate.toString()} | Est Cost: ${estCost.toString()}`;
+      }catch(e){
+        document.getElementById('gasInfo').innerText = 'Gas estimate failed: '+(e.message||e);
+      }
+
+      try{
+        const tx = await distributor.batchTransferFrom(tokenAddr, recipients, amounts);
+        alert('Batch TX: '+tx.hash);
+        await tx.wait();
+        alert('Selesai');
+      }catch(err){
+        alert('Gagal: '+(err.error?.message||err.message||err));
+      }
+    };
+  </script>
+</body>
+</html>
