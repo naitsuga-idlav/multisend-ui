@@ -9,11 +9,14 @@
     input,button,select{padding:8px;margin:6px 0}
     table{width:100%;border-collapse:collapse}
     table td, table th{border:1px solid #ddd;padding:6px}
+    #warning{color:red; font-weight:bold; margin:10px 0;}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.min.js"></script>
 </head>
 <body>
   <h2>Batch Transfer (1 TX bila approve / token support permit)</h2>
+
+  <div id="warning"></div>
 
   <div>
     <button id="connect">Connect Wallet</button>
@@ -51,6 +54,17 @@
   </div>
 
   <script>
+    const warningDiv = document.getElementById('warning');
+
+    // Auto-detect wallet
+    let injectedWallet = null;
+    if (window.ethereum) {
+      injectedWallet = 'Ethereum Wallet (Metamask / Rabby / Phantom EVM)';
+      warningDiv.innerText = '';
+    } else {
+      warningDiv.innerText = '⚠️ No Web3 wallet detected. Please use Metamask / Rabby / Phantom EVM browser.';
+    }
+
     const abiERC20 = [
       'function decimals() view returns (uint8)',
       'function approve(address spender, uint256 amount) external returns (bool)',
@@ -63,10 +77,10 @@
     ];
 
     let provider, signer, account;
-    let distributorAddress = ""; // Masukkan alamat BatchDistributor di sini
+    let distributorAddress = ""; // 0x097d62A7770AE8c654CE1CFEFD278cbCf9AE34a5
 
     async function connect(){
-      if(!window.ethereum) return alert('Install MetaMask');
+      if(!window.ethereum) return alert('No Web3 wallet detected. Use Metamask or compatible wallet.');
       provider = new ethers.BrowserProvider(window.ethereum);
       await provider.send('eth_requestAccounts', []);
       signer = await provider.getSigner();
@@ -107,7 +121,7 @@
       if(!signer) return alert('Connect wallet dulu');
       const tokenAddr = document.getElementById('tokenAddr').value.trim();
       if(!tokenAddr) return alert('Token address wajib');
-      if(!distributorAddress) return alert('Isi distributorAddress');
+      if(!distributorAddress) return alert('0x097d62A7770AE8c654CE1CFEFD278cbCf9AE34a5');
 
       const token = new ethers.Contract(tokenAddr, abiERC20, signer);
       const max = ethers.parseUnits('1000000000000', 18);
@@ -122,7 +136,7 @@
       const tokenAddr = document.getElementById('tokenAddr').value.trim();
       if(!tokenAddr) return alert('Token address wajib');
       if(!window._batchList || window._batchList.length===0) return alert('Parse list dulu');
-      if(!distributorAddress) return alert('Isi distributorAddress');
+      if(!distributorAddress) return alert('0x097d62A7770AE8c654CE1CFEFD278cbCf9AE34a5');
 
       const token = new ethers.Contract(tokenAddr, abiERC20, signer);
       const decimals = await token.decimals().catch(()=>18);
